@@ -1,118 +1,146 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
+import React, { useState } from 'react';
+import { Text, View, PermissionsAndroid, FlatList, StyleSheet, Button } from 'react-native';
+import SmsAndroid from 'react-native-get-sms-android';
 
-import React from 'react';
-import type {PropsWithChildren} from 'react';
-import {
-  SafeAreaView,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  useColorScheme,
-  View,
-} from 'react-native';
+interface SMS {
+  body: string;
+  date: string;
+}
 
-import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+interface Transaction {
+  amount: number;
+  date: string;
+  description: string;
+  balance: number;
+}
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
+export default function App() {
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+  async function requestPermission(): Promise<boolean> {
+    try {
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.READ_SMS,
+        {
+          title: "Read SMS permission is required",
+          message: "This app needs access to your SMS to function properly.",
+          buttonPositive: "OK",
+          buttonNegative: "Cancel",
+          buttonNeutral: "Ask Me Later",
+        },
+      );
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    } catch (err) {
+      console.warn(err);
+      return false;
+    }
+  }
+
+  function parseTransaction(body: string): Transaction | null {
+    const regex = /Rs\. ([\d,]+\.?\d*).*on (\d{2}-\d{2}-\d{4}).*at (.+)\. Avl Bal: Rs\. ([\d,]+\.?\d*)/;
+    const match = body.match(regex);
+    if (match) {
+      return {
+        amount: parseFloat(match[1].replace(',', '')),
+        date: match[2],
+        description: match[3],
+        balance: parseFloat(match[4].replace(',', '')),
+      };
+    }
+    return null;
+  }
+
+  async function fetchTransactions() {
+    try {
+      const hasPermission = await requestPermission();
+      if (hasPermission) {
+        SmsAndroid.list(
+          JSON.stringify({
+            box: 'sent',
+            maxCount: 30, // Increased to potentially capture more relevant messages
+          }),
+          (fail: string) => {
+            console.log("Failed to fetch messages:", fail);
+            setError(`Failed to fetch messages: ${fail}`);
+          },
+          (count: number, messagesJson: string) => {
+            const sms: SMS[] = JSON.parse(messagesJson);
+            console.log(sms);
+            const parsedTransactions = sms
+              .map(message => parseTransaction(message.body))
+              .filter((transaction): transaction is Transaction => transaction !== null);
+              console.log(parsedTransactions);
+            setTransactions(parsedTransactions);
+          }
+        );
+      } else {
+        setError('SMS permission not granted');
+      }
+    } catch (err) {
+      console.error('Error in fetchTransactions:', err);
+      setError(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  const renderItem = ({ item }: { item: Transaction }) => (
+    <View style={styles.transactionContainer}>
+      <Text style={styles.date}>{item.date}</Text>
+      <Text style={styles.description}>{item.description}</Text>
+      <Text style={styles.amount}>Rs. {item.amount.toFixed(2)}</Text>
+      <Text style={styles.balance}>Balance: Rs. {item.balance.toFixed(2)}</Text>
+    </View>
+  );
+
   return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
+    <View style={styles.container}>
+      <Button title="View Expenses" onPress={fetchTransactions} />
+      {error ? (
+        <Text style={styles.errorText}>{error}</Text>
+      ) : (
+        <FlatList
+          data={transactions}
+          keyExtractor={(item, index) => index.toString()}
+          renderItem={renderItem}
+          ListEmptyComponent={<Text>No transactions found</Text>}
+        />
+      )}
     </View>
   );
 }
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
-  };
-
-  return (
-    <SafeAreaView style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        style={backgroundStyle}>
-        <Header />
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
-}
-
 const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
+  container: {
+    flex: 1,
+    padding: 10,
   },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
+  transactionContainer: {
+    marginBottom: 10,
+    padding: 10,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 5,
   },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
+  date: {
+    fontSize: 14,
+    color: '#666',
   },
-  highlight: {
-    fontWeight: '700',
+  description: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginVertical: 4,
+  },
+  amount: {
+    fontSize: 16,
+    color: 'red',
+  },
+  balance: {
+    fontSize: 14,
+    color: 'green',
+    marginTop: 4,
+  },
+  errorText: {
+    color: 'red',
+    fontSize: 16,
+    textAlign: 'center',
   },
 });
-
-export default App;
